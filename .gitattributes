@@ -1,0 +1,23 @@
+# ============================================================
+# 换行符策略
+#
+# 背景：Windows 的换行是 CRLF（\r\n），Linux/macOS 是 LF（\n）。
+# 如果不管，同一份文件在不同平台上会被 git 认为"每一行都改了"，
+# 产生整文件级别的假 diff，把真正的改动淹掉。
+#
+# 对策：仓库里一律用 LF 存，工作区也签出成 LF。
+# 这样 Windows 和 Linux 看到的是同一份字节，diff 永远只反映真实改动。
+# ============================================================
+* text=auto eol=lf
+
+# Windows 专用脚本反过来，必须保留 CRLF，否则 PowerShell/cmd 执行可能出问题
+*.ps1  text eol=crlf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# 二进制文件禁止任何换行转换
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.zip  binary

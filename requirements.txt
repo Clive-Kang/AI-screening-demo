@@ -1,0 +1,15 @@
+# 智能简历筛选系统 —— 依赖清单
+#
+# 本文件按 ARCHITECTURE.md §12 的落地顺序逐阶段生长：只声明"该阶段真正用到"的包，
+# 不做一次性铺全，避免出现装了但没人读的死配置。
+#
+# 环境：复用 conda 的 ai_resume_screening（Python 3.10.22）。
+#       该环境里阶段 1 所需的包已全部就位，因此现在不需要执行任何安装命令。
+#       将来若要重建环境：D:/conda_envs/ai_resume_screening/python.exe -m pip install -r requirements.txt
+
+# ===== 阶段 1：领域内核 + 配置化评分 =====
+pydantic        # 配置文件的 schema 校验（scoring.yaml → ScoringProfile）
+PyYAML          # 读取 config/scoring.yaml
+
+# ===== 测试 =====
+pytest
