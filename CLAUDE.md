@@ -1,6 +1,6 @@
 # CLAUDE.md — 智能简历筛选系统（重建版）
 
-> 本文件承载跨会话的项目上下文。**新会话请先读本文件，再读 [ARCHITECTURE.md](ARCHITECTURE.md)。**
+> 本文件承载跨会话的项目上下文。**新会话请先读本文件，再读 [ARCHITECTURE.md](ARCHITECTURE.md)（设计）与 [CODE_MAP.md](CODE_MAP.md)（代码地图）。**
 > 回复语言：**始终使用简体中文**（代码、命令、变量名、日志、报错信息保持原文不翻译）。
 
 ---
