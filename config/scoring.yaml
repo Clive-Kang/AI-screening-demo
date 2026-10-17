@@ -18,12 +18,13 @@ profiles:
 
   tech:                              # 技术岗：技能与行业主导
     dims:
-      skill:     { weight: 0.40 }
-      industry:  { weight: 0.15 }
-      location:  { weight: 0.15 }
-      salary:    { weight: 0.10 }
-      education: { weight: 0.10 }
-      tag:       { weight: 0.10 }    # 合计 1.00
+      skill:     { weight: 0.40 }   # 技能权重 40%
+      education: { weight: 0.15 }   # 学历权重 15%
+      location:  { weight: 0.15 }   # 地域权重 15%
+      industry:  { weight: 0.10 }   # 行业权重 10%
+      salary:    { weight: 0.10 }   # 薪资权重 10%
+      tag:       { weight: 0.10 }   # 标签权重 10%
+      # 合计 1.00
     semantic: { weight: 0.20 }       # 语义相似度分占最终分的 20%
     recall:
       top_k: 100                     # 向量召回条数；结构化过滤在召回之后做

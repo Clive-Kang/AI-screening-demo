@@ -507,19 +507,30 @@ overall = 六维加权分 × (1 - semantic.weight) + 语义分 × semantic.weigh
 ```python
 @dataclass(frozen=True)
 class DimScore:
-    name: str        # "skill"
-    score: float     # 归一化到 [0,1]
-    weight: float    # 本次实际使用的权重
-    reason: str      # 人类可读："命中必需技能 3/4，优先技能 1/2"
+    name: str              # "skill"
+    score: float | None    # [0,1]；None 表示该维度没有数据
+    weight: float          # 本次实际使用的权重
+    reason: str            # 人类可读："命中必需技能 3/4，优先技能 1/2"
+
+    @property
+    def missing(self) -> bool:   # score is None
+        ...
 
 @dataclass(frozen=True)
 class ScoreBreakdown:
     overall: float
-    dims: list[DimScore]
+    dims: tuple[DimScore, ...]
     semantic: DimScore | None
     profile: str
     config_hash: str
+
+    @property
+    def coverage(self) -> float:   # Σ 有值维度的权重
+        ...
 ```
+
+`score` 用 `float | None` 而不是 `float`：**「没有数据」和「得了 0 分」必须区分**。
+「简历里没写期望薪资」和「期望薪资完全不匹配」对 HR 是两回事。
 
 这样 API 能输出**真正的**可解释分数。参考项目的路由层有一段
 `_calc_skill_scores`（`app/api/routes.py:71-91`）在 API 层**伪造**单项技能分——
@@ -540,6 +551,29 @@ POST /api/v1/runs
 
 覆盖后的**完整生效配置**写入 `runs.config_snapshot_json`。
 HR 可以自由试参数，但任何一次结果都能精确复算。
+
+**规则 4 · 缺失维度从分母剔除，不按 0 分算。**
+
+简历里不写期望薪资、期望地点、行业是常态。若缺失按 0 分计入，
+得分反映的就不是"多匹配"而是"写得多详细"——**信息完备性偏差**：
+一个各维都强但没写薪资的人，会输给一个各维平庸但把表格填满的人。
+
+评分时只在实际有数据的维度上加权，再按有效权重归一化：
+
+```
+dims_score = Σ(score_i × w_i，仅限有值的维度) / Σ(w_i，仅限有值的维度)
+overall    = dims_score × (1 - semantic.weight) + semantic_score × semantic.weight
+```
+
+同时返回 `coverage = Σ(w_i，仅限有值的维度)`，表示这份分数基于多少信息。
+`DimScore.score = None` 表示"无数据"，与 `0.0`（"完全不匹配"）严格区分。
+
+配套的抽取层要求：`industry` 由 LLM 从公司名/职位**推断**而不是等简历明写；
+`tags` 由系统规则生成（"5 年以上"、"大厂背景"），不是从原文里找——
+这两项本来就不该依赖候选人的书写习惯。
+
+> 注意与 §6.4 的区别：`unknown_field_policy` 管的是**硬性过滤**要不要淘汰，
+> 本条规则管的是**打分**怎么算。一个字段可以「打分时剔除、过滤时放行」。
 
 ### 6.4 `unknown_field_policy` 说明
 
