@@ -13,6 +13,7 @@
 """
 
 from app.domain.models import (
+    DEGREE_NAMES,
     DimScore,
     JobRequirement,
     ResumeMetadata,
@@ -225,6 +226,7 @@ def score_salary(resume: ResumeMetadata, req: JobRequirement) -> float | None:
 # 报告要能在任何一次运行之间逐行对比。
 _DIM_ORDER = ("skill", "education", "industry", "location", "salary", "tag")
 
+# 维度名称 → 打分函数映射表，遍历的时候自动调用对应打分逻辑
 _DIM_FUNCS = {
     "skill": score_skill,
     "education": score_education,
@@ -234,11 +236,21 @@ _DIM_FUNCS = {
     "tag": score_tag,
 }
 
-_DEGREE_NAMES = {0: "未知", 1: "大专", 2: "本科", 3: "硕士", 4: "博士"}
+# 学历等级中文映射，用来生成reason展示文本
 
 
 def _requirement_absent(name: str, req: JobRequirement) -> bool:
-    """这一维的要求是不是压根没写。"""
+    """岗位需求里有没有写这一维的条件。
+
+    用来区分两种「得分为 None」，它们在报告里是两句不同的话：
+
+        岗位没提这个条件   → "岗位未要求"，这一维不参与评判
+        岗位提了但简历没写 → "简历无此类数据"，是值得 HR 追问的信息缺口
+
+    用字典而不是 if/elif：维度名传错时这里会 KeyError，
+    if/elif 缺少 else 则会静默返回 None（被当成 False），
+    错误从这里一路流到报告里，没有任何报错。
+    """
     return {
         "skill": not (req.required_skills or req.preferred_skills),
         "education": req.min_degree_level <= 0,
@@ -269,39 +281,39 @@ def _reason(
         hit_pre = sum(1 for s in req.preferred_skills if _token_hit(_norm(s), pool))
         parts = []
         if req.required_skills:
-            parts.append(f"必需技能命中 {hit_req}/{len(req.required_skills)}")
+            parts.append(f"必需技能命中 {hit_req}/{len(req.required_skills)}")#必需技能命中数量 / 总数
         if req.preferred_skills:
-            parts.append(f"优先技能命中 {hit_pre}/{len(req.preferred_skills)}")
+            parts.append(f"优先技能命中 {hit_pre}/{len(req.preferred_skills)}")  #优先技能命中数量 / 总数
         return "，".join(parts)
 
     if name == "education":
         actual = resume.highest_degree_level
         need = req.min_degree_level
         return (
-            f"最高学历 {_DEGREE_NAMES[actual]}（{actual}），"
-            f"要求 {_DEGREE_NAMES[need]}（{need}）"
+            f"最高学历 {DEGREE_NAMES[actual]}（{actual}），"
+            f"要求 {DEGREE_NAMES[need]}（{need}）"
         )
 
     if name == "location":
         pool = {_norm(x) for x in resume.preferred_locations if _norm(x)}
         hit = sum(1 for x in req.locations if _token_hit(_norm(x), pool, min_len=2))
-        return f"地点命中 {hit}/{len(req.locations)}"
+        return f"地点命中 {hit}/{len(req.locations)}"  #命中个数 / 需求总数
 
     if name == "industry":
         pool = {_norm(x) for x in resume.industries if _norm(x)}
         hit = sum(1 for x in req.industries if _token_hit(_norm(x), pool))
-        return f"行业命中 {hit}/{len(req.industries)}"
+        return f"行业命中 {hit}/{len(req.industries)}"  #命中个数 / 需求总数
 
     if name == "tag":
         pool = {_norm(x) for x in resume.tags if _norm(x)}
         hit = sum(1 for x in req.tags if _token_hit(_norm(x), pool))
-        return f"标签命中 {hit}/{len(req.tags)}"
+        return f"标签命中 {hit}/{len(req.tags)}"   #命中个数 / 需求总数
 
     if name == "salary":
         expected = parse_salary_range(resume.expected_salary)
         low = str(req.salary_min) if req.salary_min is not None else "不限"
         high = str(req.salary_max) if req.salary_max is not None else "不限"
-        return f"期望 {expected[0]}-{expected[1]} 元，预算 {low}-{high} 元"
+        return f"期望 {expected[0]}-{expected[1]} 元，预算 {low}-{high} 元" #展示候选人期望薪资区间 和 岗位预算区间
 
     return f"得分 {score:.2f}"
 
@@ -309,11 +321,11 @@ def _reason(
 def combine(
     resume: ResumeMetadata,
     req: JobRequirement,
-    profile: ScoringProfile,
+    profile: ScoringProfile,  #评分档案
     *,
-    profile_name: str,
-    semantic_score: float | None = None,
-    config_hash: str = "",
+    profile_name: str,   #评分档案名称
+    semantic_score: float | None = None,  #向量 RAG/Embedding 算出的岗位文本相似度
+    config_hash: str = "",   #前整套评分配置的哈希，用于版本审计、A/B 测试追溯
 ) -> ScoreBreakdown:
     """把六个维度和语义分合成一个 ScoreBreakdown。
 
@@ -328,24 +340,26 @@ def combine(
     """
     dims: list[DimScore] = []
     for name in _DIM_ORDER:
-        value = _DIM_FUNCS[name](resume, req)
-        dims.append(DimScore(
+        value = _DIM_FUNCS[name](resume, req)  #通过_DIM_FUNCS[name] 调用对应的单维打分函数，得到`value`
+        dims.append(DimScore(  #1. 组装`DimScore`对象存入列表 dims
             name=name,
             score=value,
-            weight=profile.dims[name].weight,
-            reason=_reason(name, resume, req, value),
+            weight=profile.dims[name].weight,  #从`profile`读取该维度**本次使用的权重**
+            reason=_reason(name, resume, req, value), #调用`_reason`生成可读解释文本
         ))
 
     # ---- 剔除分母：只累加有数据的维度 ----
+    #业务意义：缺失的维度直接从分母分子一起拿掉，而不是当做 0 分参与计算。避免简历信息少的候选人天然吃亏。
     active_weight = sum(d.weight for d in dims if not d.missing)
     if active_weight > 0:
         dims_score = (
             sum(d.score * d.weight for d in dims if not d.missing) / active_weight
-        )
+        )  #分子：有数据维度的 `score × weight` 累加        /      分母:这些有效维度权重之和 active_weight
     else:
         dims_score = None
 
     # ---- 与语义混合 ----
+    #语义分是独立于 6 个规则维度的一路分数，来自文本向量相似度，单独一个权重`w`。
     w = profile.semantic.weight
     semantic = (
         DimScore("semantic", semantic_score, w, f"向量相似度 {semantic_score:.3f}")
@@ -360,7 +374,7 @@ def combine(
     elif semantic_score is None:
         overall = dims_score
     else:
-        overall = dims_score * (1 - w) + semantic_score * w
+        overall = dims_score * (1 - w) + semantic_score * w  # w：语义分的权重
 
     return ScoreBreakdown(
         overall=overall,

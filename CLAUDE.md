@@ -7,7 +7,7 @@
 
 ## 0. 当前状态（截至 2026-10-16）
 
-> **一句话进度**：阶段 1（领域内核）进行中，已完成 6 轮，**下一步 R7 —— 硬性过滤**。
+> **一句话进度**：**阶段 1（领域内核 + 配置化评分）已完成**（7 轮），下一步进入**阶段 2 —— 持久化 + 端口/适配器**。
 > 工作约定见 §7；阶段 1 之后的路线见 [ARCHITECTURE.md](ARCHITECTURE.md) §12。
 
 ### 已完成
@@ -20,14 +20,16 @@
 | R4 | 评分配置加载与校验 | [scoring.yaml](config/scoring.yaml)、[policies.py](app/domain/policies.py)、[test_policies.py](tests/unit/test_policies.py) | `8a002d0` |
 | R5 | 领域模型 | [models.py](app/domain/models.py)、[test_models.py](tests/unit/test_models.py) | `b817ad9` |
 | R6 | 七维打分 + `combine()` | [scoring.py](app/domain/scoring.py)、[test_scoring.py](tests/unit/test_scoring.py)、`text.parse_salary_range` | 见下 |
+| R7 | 硬性过滤 + 三种缺失策略 | [filtering.py](app/domain/filtering.py)、[test_filtering.py](tests/unit/test_filtering.py) | 见下 |
 
-测试：`python -m pytest tests/ -q` → **177 passed**（命令必须带 `-m`，见 §7）
+测试：`python -m pytest tests/ -q` → **201 passed**（命令必须带 `-m`，见 §7）
 
-### 阶段 1 待办
+### 下一步：阶段 2（持久化 + 端口/适配器）
 
 | 轮次 | 内容 |
 |---|---|
-| R7 | `domain/filtering.py` 硬性过滤 + 三种 `unknown_field_policy` ← **下一步** |
+| R8 | `app/ports/` 接口定义（llm / vector_store / repository / task_queue / document_parser） |
+| R9 | `db/schema.sql` + `adapters/repo/sqlite_repo.py` |
 
 ### 已定的技术决策
 

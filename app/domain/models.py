@@ -14,6 +14,10 @@ from dataclasses import dataclass, field
 
 from app.domain.text import Period, merge_experience_months, parse_year_month
 
+# 学历等级的中文名。评分和过滤都要用它生成人话理由，
+# 所以放在 models 而不是某个模块内部 —— 两边各写一份迟早会对不上。
+DEGREE_NAMES = {0: "未知", 1: "大专", 2: "本科", 3: "硕士", 4: "博士"}
+
 
 @dataclass(frozen=True) #frozen=True：实例不可变，防止评分时被改权重
 class DateRange:
@@ -260,3 +264,29 @@ class JobRequirement:
             raise ValueError(
                 f"salary_min={self.salary_min} 大于 salary_max={self.salary_max}"
             )
+
+
+# ============================================================
+# 硬性过滤的输出
+# ============================================================
+
+@dataclass(frozen=True)
+class FilterResult:
+    """一次硬性过滤的结果。
+
+    被淘汰的候选人**也要留下来**，并且必须带上原因 ——
+    参考项目直接丢弃被过滤者，导致"为什么这个人没出现"完全无法回答
+    （ARCHITECTURE.md §6.4）。
+    """
+
+    passed: bool
+    reasons: tuple[str, ...] = ()   # 淘汰原因；passed=True 时为空
+    unknown: tuple[str, ...] = ()   # 哪些维度因为没数据而无法判断
+
+    def __post_init__(self) -> None:
+        # 不变量：淘汰必须给得出解释。
+        # 没有理由的淘汰等于黑箱，而"为什么没通过"正是 HR 最常问的问题。
+        if self.passed and self.reasons:
+            raise ValueError("passed=True 时不应该有淘汰原因")
+        if not self.passed and not self.reasons:
+            raise ValueError("passed=False 时必须给出至少一条原因")
