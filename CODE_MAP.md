@@ -12,7 +12,7 @@
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| 阶段 1 | 领域内核 + 配置化评分 | 🔄 **进行中（4/7 轮）** |
+| 阶段 1 | 领域内核 + 配置化评分 | 🔄 **进行中（5/7 轮）** |
 | 阶段 2 | 持久化 + 端口/适配器 | ⬜ 未开始 |
 | 阶段 3 | 异步任务（含上传异步化 §5.5） | ⬜ 未开始 |
 | 阶段 4 | LLM 层加固 | ⬜ 未开始 |
@@ -30,14 +30,16 @@ D:\AI_resume_screening_self\
 │   └── domain/
 │       ├── __init__.py              ✅ R1   依赖边界声明（禁止 import 框架）
 │       ├── text.py                  ✅ R2-R3 日期归一 + 在职标记 + 经历时长归并
-│       └── policies.py              ✅ R4   评分档案：YAML → 校验过的对象
+│       ├── policies.py              ✅ R4   评分档案：YAML → 校验过的对象
+│       └── models.py                ✅ R5   领域模型：日期区间 / 经历 / 学历 / 评分输出
 ├── config/
 │   └── scoring.yaml                 ✅ R4   评分档案配置（tech / sales / strict）
 ├── tests/
 │   ├── test_smoke.py                ✅ R1   脚手架冒烟
 │   └── unit/
 │       ├── test_text.py             ✅ R2-R3 日期解析、月数、区间归并（58 个用例）
-│       └── test_policies.py         ✅ R4   权重校验、继承、非法配置必须报错（16 个用例）
+│       ├── test_policies.py         ✅ R4   权重校验、继承、非法配置必须报错（16 个用例）
+│       └── test_models.py           ✅ R5   模型不变量与派生属性（21 个用例）
 ├── requirements.txt                 ✅ R1   阶段 1 依赖（pydantic / PyYAML / pytest）
 ├── .gitignore / .gitattributes      ✅ R1
 ├── ARCHITECTURE.md                  ✅      设计文档（v1.1）
@@ -80,7 +82,7 @@ D:\AI_resume_screening_self\
 |---|---|---|---|---|
 | `__init__.py` | 包标记；写明"禁止 import 框架"这条边界 | 无 | — | ✅ R1 |
 | `text.py` | 日期归一、在职标记识别、多段经历时长（重叠取并集） | `re`、`collections.abc` | filtering / scoring / ingestion | ✅ R2-R3 |
-| `models.py` | 领域数据结构：`Resume` / `DateRange` / `DimScore` / `ScoreBreakdown` | 标准库 | 几乎所有模块 | ⬜ R5 |
+| `models.py` | 领域数据结构：`DateRange` / `WorkExperience` / `Education` / `ResumeMetadata` / `DimScore` / `ScoreBreakdown` | 标准库 + `text.py` | 几乎所有模块 | ✅ R5 |
 | `policies.py` | 评分档案对象：`ScoringProfile` / `UnknownFieldPolicy`；从 YAML 构造并校验 | pydantic + PyYAML | scoring / filtering / services | ✅ R4 |
 | `scoring.py` | 六维 + 语义维加权，每维返回 `(score, weight, reason)` | models / policies / text | services | ⬜ R6 |
 | `filtering.py` | 硬性过滤：经验、学历、地点；三种 `unknown_field_policy` | models / policies / text | services | ⬜ R7 |
@@ -92,7 +94,7 @@ D:\AI_resume_screening_self\
 | `test_smoke.py` | 包能导入、阶段 1 依赖版本可用 | ✅ R1 |
 | `unit/test_text.py` | 日期解析、在职标记、月数、区间归并（58 个用例） | ✅ R2-R3 |
 | `unit/test_policies.py` | 权重和 == 1.0、档案继承、非法配置必须报错 | ✅ R4 |
-| `unit/test_models.py` | 模型不变量 | ⬜ R5 |
+| `unit/test_models.py` | 模型不变量、派生属性、`coverage` 计算 | ✅ R5 |
 | `unit/test_scoring.py` | 各维度得分与 `reason` 文案、权重加权正确 | ⬜ R6 |
 | `unit/test_filtering.py` | 三种 `unknown_field_policy` 的行为差异 | ⬜ R7 |
 
