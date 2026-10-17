@@ -10,13 +10,14 @@
 """
 
 import re
+from collections.abc import Sequence  
 
 # 年份的合理区间。超出即判为脏数据，直接返回 None，不让它污染下游的年限统计。
 # 简历里不可能出现 1899 年之前的工作经历；2100 只是给未来留的余量。
 _MIN_YEAR = 1900
 _MAX_YEAR = 2100
 
-# 日期串的整体形状：4 位年 + 可选的分隔符与月 + 可选的“年/月”字。
+# 利用正则表达式 定义日期串的整体形状：4 位年 + 可选的分隔符与月 + 可选的“年/月”字。
 # 逐段拆开看：
 #
 #   ^\s*                    行首允许有空白
@@ -40,7 +41,7 @@ _YM_PATTERN = re.compile(
 )
 
 
-def parse_year_month(raw: str | None) -> str | None:
+def parse_year_month(raw: str | None) -> str | None: 
     """把简历里五花八门的日期写法，统一成 'YYYY-MM'。
 
     解析不了就返回 None —— 不猜、不兜底、不抛异常。
@@ -68,14 +69,14 @@ def parse_year_month(raw: str | None) -> str | None:
     # 非字符串（None、数字等）直接判失败。
     # 这里刻意不做 str(raw) 转换：静默转换会掩盖上游的类型错误，
     # 让一个本该暴露的数据问题变成一条看起来正常的结果。
-    if not isinstance(raw, str):
+    if not isinstance(raw, str): ## ① 不是字符串 → None
         return None
 
-    matched = _YM_PATTERN.match(raw)
+    matched = _YM_PATTERN.match(raw) # ② 整串匹配
     if matched is None:
-        return None
+        return None           #    没匹配上 → None 
 
-    year = int(matched.group("year"))
+    year = int(matched.group("year"))  # ③ 取年，检查 1900~2100
     if not (_MIN_YEAR <= year <= _MAX_YEAR):
         return None
 
@@ -92,3 +93,138 @@ def parse_year_month(raw: str | None) -> str | None:
             return None
 
     return f"{year}-{month:02d}"
+
+
+# ============================================================
+# 经历时长计算
+#
+# 这一节回答一个问题：一个人一共干了多久？
+# 三个坑必须一次解决：日期写法杂（上一节解决）、"至今"怎么算（依赖今天）、
+# 多段经历时间重叠时不能重复累加（参考项目已知未修的问题）。
+# ============================================================
+
+# 「在职中」的标记词。统一小写、去首尾空白后做**整串**比对，不做模糊匹配——
+# "至今为止的思考"这种文本不该被当成在职中。
+_CURRENT_MARKERS = frozenset({
+    "至今", "至今为止", "现在", "目前", "在职", "在职中", "当前",
+    "present", "now", "current",
+})
+
+# 一段经历的轻量表示：(开始年月, 结束年月, 是否在职中)。
+# 这里故意用元组而不是 dataclass：领域模型 DateRange 要到 R5 才定义，
+# 底层的文本工具不能反过来依赖上层结构。
+Period = tuple[str | None, str | None, bool]
+
+
+def is_current_marker(raw: str | None) -> bool:
+    """判断一个字符串是不是「在职中」的标记。
+
+    '至今' / 'Present' / '现在'   → True
+    '' / None / '今' / '2020-07'  → False
+
+    空值明确返回 False：**没写结束时间 ≠ 干到今天**。
+    把它当成在职中会让经验年限虚高，是参考项目"天文数字年限"bug 的近亲。
+    """
+    if not isinstance(raw, str):
+        return False
+    return raw.strip().lower() in _CURRENT_MARKERS
+
+
+def _month_index(ym: str | None) -> int | None:
+    """'YYYY-MM' → 从公元 0 年 1 月起算的月序号，用于整数加减。
+
+    '2020-07' → 2020 * 12 + 7 = 24247
+    '2021-07' → 24307            两者相减 = 12，正好一年
+
+    这里复用 parse_year_month 而不是自己切字符串：日期解析只有一处实现，
+    哪些脏输入该拒绝，也只在一个地方维护。
+    """
+    parsed = parse_year_month(ym)
+    if parsed is None:
+        return None
+    year_text, month_text = parsed.split("-")
+    return int(year_text) * 12 + int(month_text)
+
+
+def months_between(start_ym: str | None, end_ym: str | None) -> int | None:
+    """两个年月之间经历了多少个月（差值法）。
+
+    months_between('2020-01', '2020-02')  → 1
+    months_between('2025-08', '2026-09')  → 13
+    months_between('2020-01', '2019-12')  → None   （倒挂，数据有误）
+
+    任一端解析不了、或结束早于开始，都返回 None —— 交给上层决定怎么处理，
+    而不是在这里返回 0 假装"零个月"。
+    """
+    start_idx = _month_index(start_ym)
+    end_idx = _month_index(end_ym)
+    if start_idx is None or end_idx is None:
+        return None
+
+    months = end_idx - start_idx
+    return months if months >= 0 else None
+
+
+def merge_experience_months(periods: Sequence[Period], today_ym: str) -> int:
+    """多段工作经历的总月数，时间重叠的部分取并集。
+
+    参数:
+        periods:  若干 (开始年月, 结束年月, 是否在职中) 元组。
+        today_ym: 计算"至今"长度时使用的当前年月，格式 'YYYY-MM'。
+
+    today_ym 必须是参数，不能在函数内部调 datetime.now()：
+      1) 否则测试结果会随时间漂移 —— 今天能过，明年就挂；
+      2) 更严重的是，ARCHITECTURE.md §4.4 要求绝不把"写入时刻的时钟"固化进数据。
+
+    边界处理:
+        - 开始时间解析不了        → 跳过该段
+        - 结束时间缺失且非在职    → 跳过该段（不猜）
+        - 结束早于开始（倒挂）    → 跳过该段
+        - 结束时间写成"至今"      → 即使在职标记没传对，也按在职中处理
+        - 所有段都无效            → 返回 0
+    """
+    today_idx = _month_index(today_ym)
+    if today_idx is None:
+        # today_ym 由程序传入，格式错误属于编程错误，必须立刻炸出来。
+        # 若悄悄当成 0 个月，一整批候选人的年限会静默归零 —— 这正是
+        # ARCHITECTURE.md §6.3「规则 1」反对的那类"配置错误无声通过"。
+        raise ValueError(f"today_ym 不是合法的年月：{today_ym!r}")
+
+    # ① 把每段经历换算成 [开始月序号, 结束月序号]
+    spans: list[tuple[int, int]] = []
+    for start_ym, end_ym, is_current in periods:
+        start_idx = _month_index(start_ym)
+        if start_idx is None:
+            continue
+
+        if is_current or is_current_marker(end_ym):
+            end_idx = today_idx
+        else:
+            end_idx = _month_index(end_ym)
+
+        if end_idx is None or end_idx < start_idx:
+            continue
+
+        spans.append((start_idx, end_idx))
+
+    if not spans:
+        return 0
+
+    # ② 按开始时间排序，从左到右合并重叠区间
+    #
+    #    [2020-01 ........ 2020-12]
+    #              [2020-06 ........ 2021-06]
+    #    合并后：[2020-01 .............. 2021-06]   —— 2020-06~12 只算一次
+    spans.sort()
+    merged_start, merged_end = spans[0]
+    total = 0
+    for start_idx, end_idx in spans[1:]:
+        if start_idx <= merged_end:
+            # 与本段有重叠（或正好相接）→ 延长当前段，不另起一段
+            merged_end = max(merged_end, end_idx)
+        else:
+            total += merged_end - merged_start
+            merged_start, merged_end = start_idx, end_idx
+
+    total += merged_end - merged_start
+    return total
