@@ -196,9 +196,9 @@ CREATE TABLE resumes (
     filename        TEXT NOT NULL,
     content_sha256  TEXT NOT NULL UNIQUE,       -- 内容哈希，用于去重
     blob_path       TEXT,                       -- 原始文件路径（可选）
-    raw_text        TEXT NOT NULL,              -- 解析后的纯文本
-    char_count      INTEGER NOT NULL,
-    status          TEXT NOT NULL,              -- parsed|extracted|indexed|failed
+    raw_text        TEXT,                       -- 解析后的纯文本；异步解析完成前为 NULL
+    char_count      INTEGER,                    -- 同上
+    status          TEXT NOT NULL,              -- queued|parsed|extracted|indexed|failed
     error           TEXT,
     created_at      TEXT NOT NULL
 );
@@ -380,6 +380,40 @@ idempotency_key = sha256(
 
 **`analyze` 只处理 Top-N**（默认 10，可配）。参考项目对**所有**过滤后候选人串行调用 LLM，
 这是整条链路成本最高的部分，且 11 名以后的报告 HR 根本不会看。
+
+### 5.5 上传链路也必须异步化
+
+参考项目的 `POST /resumes` 是**同步阻塞**的：`parse_pdf` → `extract_metadata`（一次完整 LLM 调用）
+→ `add_resume`（嵌入 + 写库）三步在同一个请求里串行完成；前端又用 `for ... await fetch`
+逐个文件上传。单份简历约 10–30 秒，10 份就是 2–5 分钟，期间浏览器只能干等。
+
+**新设计：上传只做「登记」，处理交给 worker。**
+
+```
+POST /resumes
+  ├─ 读文件 + 算 content_sha256（毫秒级）
+  ├─ 命中已有哈希 → 直接返回既有 id，deduplicated=true
+  └─ 落库 status='queued' + 入队 → 立即 202
+
+worker 消费任务（每份简历一个任务）
+  ├─ parse_pdf        → status='parsed'
+  ├─ LLM 抽取         → status='extracted'
+  └─ 嵌入 + 建索引     → status='indexed'
+  任一步失败 → status='failed'，error 记录原因
+```
+
+**并发**：worker 内用 `asyncio.gather` + `Semaphore(max_concurrency)` 同时处理多份简历，
+默认并发 5。抽取是 IO 密集型，5 并发可把 10 份的耗时从 ~3 分钟压到 ~40 秒。
+并发数必须可配——它同时也是对 LLM 提供方的**限流保护**，打太快会 429。
+
+**连带修正**：`resumes.status` 增加 `queued` 初始状态；`raw_text` / `char_count` 在解析完成前为
+NULL，不能声明 `NOT NULL`（否则异步落库那一步写不进去）。
+
+**前端**：上传后轮询 `GET /resumes?status=queued,parsed`（或单个 `GET /resumes/{id}`）看进度，
+不再"一次请求等到底"。
+
+> 不采用「一次 LLM 调用处理多份简历」的批量 prompt：省下的是请求数，换来的是抽取质量下降
+> 和结构化输出更难约束——抽取准确率比这点延迟更贵。
 
 ---
 
@@ -642,7 +676,7 @@ System: 当前日期是 {today}。判断任何时间是否合理时以此为准�
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `POST` | `/resumes` | 上传简历（multipart，字段 `file`）。内容重复时返回既有 id 且 `deduplicated: true` |
+| `POST` | `/resumes` | 上传简历（multipart，字段 `file`）→ `202` + `resume_id`，解析/抽取/嵌入在后台执行（§5.5）。内容重复时返回既有 id 且 `deduplicated: true` |
 | `GET` | `/resumes` | 分页列表（`limit`/`offset`/`status` 过滤） |
 | `GET` | `/resumes/{id}` | 详情（默认不含 `raw_text`，需 `?include_text=true`） |
 | `DELETE` | `/resumes/{id}` | 删除简历（连带删除向量、元数据、缓存，并 bump corpus_version） |
@@ -746,7 +780,10 @@ System: 当前日期是 {today}。判断任何时间是否合理时以此为准�
 
 - `ports/task_queue.py` + `adapters/queue/sqlite_queue.py`、`worker.py`
 - `POST /runs` + `GET /runs/{id}` + 结果落库
-- **交付标准**：提交后立即返回 202；重复 GET 不产生任何 LLM 调用；同参数重跑命中幂等。
+- `POST /resumes` 改为异步（202 + 后台解析/抽取/嵌入），worker 内并发抽取（`Semaphore`，默认 5，见 §5.5）
+- **交付标准**：
+  - 提交后立即返回 202；重复 GET 不产生任何 LLM 调用；同参数重跑命中幂等
+  - 上传立即返回；N 份简历的处理总耗时 ≈ `ceil(N / 并发数) × 单份耗时`，而不是 `N × 单份耗时`
 
 ### 阶段 4 · LLM 层加固
 
@@ -791,6 +828,7 @@ System: 当前日期是 {today}。判断任何时间是否合理时以此为准�
 | 18 | `LOG_LEVEL` 无效；info 级打印简历全文 | `config/config.py:98`、`app/core/retriever.py:153-173` | 第 10 节：结构化日志 + 正文不入日志 |
 | 19 | 大量死代码 | `Ranker.get_top_resumes` / `filter_by_threshold`、`ResultFormatter.export_*`、`DocumentParser.parse_multiple_pdfs`、`CacheManager.delete/clear/close`、`HardFilter._parse_year` | 阶段 1-3 不复制这些方法；需要则显式实现并测试 |
 | 20 | 无鉴权、无文件校验、简历正文直插 prompt | `app/main.py:26-32`、`app/api/routes.py:133` | 第 10 节 |
+| 21 | 上传链路同步阻塞且串行：单请求内「解析 → LLM → 嵌入」三步 `await`，前端又 `for...await` 逐个文件上传，单份 10–30 秒、10 份 2–5 分钟 | `app/api/routes.py:141/153/165`、`static/app.js:102` | §5.5：上传只登记，worker 并发处理 |
 
 > 说明：`HardFilter._parse_year`（第 19 行）在参考项目中是"已实现、有单测、但无人调用"的死代码——
 > 而 `_filter_by_experience` 用的是另一套会算错日期的逻辑。本项目的 `domain/text.py::parse_year_month`
@@ -911,3 +949,4 @@ class TaskQueuePort(Protocol):
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v1 | 2026-10-15 | 初版。基于对参考项目 `liangdabiao/LLM-Agent-Resume` 的完整代码走查与运行时验证。 |
+| v1.1 | 2026-10-17 | 补 §5.5 上传链路异步化（原设计漏掉了上传阶段的耗时）；`resumes.status` 增加 `queued`，`raw_text` / `char_count` 改为可空；附录 A 增加第 21 条；阶段 3 交付标准补充并发耗时要求。 |
