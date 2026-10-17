@@ -228,3 +228,61 @@ def merge_experience_months(periods: Sequence[Period], today_ym: str) -> int:
 
     total += merged_end - merged_start
     return total
+
+
+# ============================================================
+# 薪资解析
+#
+# 简历里写「20K-30K」「2万-3万」「面议」的都有，岗位需求那边也一样。
+# 统一解析成「月薪区间（元）」，评分和硬性过滤共用同一个解析器 ——
+# 两处各写一份，就会出现"评分认为是 20K、过滤认为是 2 万"的分裂。
+# ============================================================
+
+_SALARY_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+
+
+def parse_salary_range(raw: str | None) -> tuple[int, int] | None:
+    """把薪资写法解析成月薪区间，单位：元。
+
+        '20K-30K'  '20-30k'  '20k'   → (20000, 30000) / (20000, 20000)
+        '2万-3万'                     → (20000, 30000)
+        '20000-30000'                 → (20000, 30000)
+        '面议' / '' / None / '年薪30万' → None
+
+    解析不了就返回 None，不猜。理由和 parse_year_month 完全一样：
+    猜错的值不会报错，它会安静地流进评分和过滤里。
+    """
+    if not isinstance(raw, str):
+        return None
+
+    text = raw.strip().lower().replace("，", ",").replace(" ", "")
+    if not text or "面议" in text or "negotiable" in text:
+        return None
+
+    # 年薪 / 月薪混用会引入一个隐式的「除以 12」，先不做。
+    # 见到就返回 None，让上层当作"没有薪资数据"处理，比算错强。
+    if "/年" in text or "年薪" in text or "/yr" in text:
+        return None
+
+    numbers = [float(n) for n in _SALARY_NUMBER.findall(text)]
+    if not numbers:
+        return None
+
+    unit = 1
+    if "万" in text or "w" in text:
+        unit = 10000
+    elif "k" in text or "千" in text:
+        unit = 1000
+    elif numbers[0] < 1000:
+        # 裸数字「20-30」在国内简历里基本都指 K，按 K 理解。
+        # 这个假设写在文档里，而不是藏在代码里。
+        unit = 1000
+
+    low = numbers[0] * unit
+    high = numbers[1] * unit if len(numbers) >= 2 else low
+    if low > high:
+        low, high = high, low
+
+    if low <= 0:
+        return None
+    return int(low), int(high)

@@ -11,6 +11,7 @@ from app.domain.models import (
     DateRange,
     DimScore,
     Education,
+    JobRequirement,
     ResumeMetadata,
     ScoreBreakdown,
     WorkExperience,
@@ -203,3 +204,43 @@ def test_breakdown_rejects_duplicate_dim_names():
 def test_breakdown_rejects_out_of_range_overall(bad):
     with pytest.raises(ValueError, match="overall"):
         ScoreBreakdown(overall=bad, dims=(), semantic=None, profile="tech", config_hash="x")
+
+
+# ============================================================
+# JobRequirement
+# ============================================================
+
+def test_empty_requirement_is_valid():
+    """空需求 = 不限条件，一切默认值必须合法。"""
+    req = JobRequirement()
+    assert req.required_skills == ()
+    assert req.min_degree_level == 0
+    assert req.min_experience_months is None
+
+
+def test_requirement_keeps_month_granularity():
+    """经验用月：3 年 11 个月写 47，不写 3。"""
+    req = JobRequirement(min_experience_months=47)
+    assert req.min_experience_months == 47
+
+
+@pytest.mark.parametrize("bad", [-1, 5])
+def test_requirement_rejects_degree_level_out_of_range(bad):
+    with pytest.raises(ValueError, match="min_degree_level"):
+        JobRequirement(min_degree_level=bad)
+
+
+def test_requirement_rejects_negative_experience():
+    with pytest.raises(ValueError, match="min_experience_months"):
+        JobRequirement(min_experience_months=-1)
+
+
+def test_requirement_rejects_inverted_salary():
+    with pytest.raises(ValueError, match="salary_min"):
+        JobRequirement(salary_min=40000, salary_max=30000)
+
+
+def test_requirement_allows_half_open_salary():
+    """只写一端（"20K 以上"）是合法的。"""
+    assert JobRequirement(salary_min=20000).salary_max is None
+    assert JobRequirement(salary_max=40000).salary_min is None

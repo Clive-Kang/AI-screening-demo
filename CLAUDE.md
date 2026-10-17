@@ -7,7 +7,7 @@
 
 ## 0. 当前状态（截至 2026-10-16）
 
-> **一句话进度**：阶段 1（领域内核）进行中，已完成 5 轮，**下一步 R6 —— 六维 + 语义维评分**。
+> **一句话进度**：阶段 1（领域内核）进行中，已完成 6 轮，**下一步 R7 —— 硬性过滤**。
 > 工作约定见 §7；阶段 1 之后的路线见 [ARCHITECTURE.md](ARCHITECTURE.md) §12。
 
 ### 已完成
@@ -19,15 +19,15 @@
 | R3 | 经历时长计算 | [text.py](app/domain/text.py)（`is_current_marker` / `months_between` / `merge_experience_months`） | `4c21348` |
 | R4 | 评分配置加载与校验 | [scoring.yaml](config/scoring.yaml)、[policies.py](app/domain/policies.py)、[test_policies.py](tests/unit/test_policies.py) | `8a002d0` |
 | R5 | 领域模型 | [models.py](app/domain/models.py)、[test_models.py](tests/unit/test_models.py) | `b817ad9` |
+| R6 | 七维打分 + `combine()` | [scoring.py](app/domain/scoring.py)、[test_scoring.py](tests/unit/test_scoring.py)、`text.parse_salary_range` | 见下 |
 
-测试：`python -m pytest tests/ -q` → **105 passed**（命令必须带 `-m`，见 §7）
+测试：`python -m pytest tests/ -q` → **177 passed**（命令必须带 `-m`，见 §7）
 
 ### 阶段 1 待办
 
 | 轮次 | 内容 |
 |---|---|
-| R6 | `domain/scoring.py` 六维 + 语义维加权 ← **下一步** |
-| R7 | `domain/filtering.py` 硬性过滤 + 三种 `unknown_field_policy` |
+| R7 | `domain/filtering.py` 硬性过滤 + 三种 `unknown_field_policy` ← **下一步** |
 
 ### 已定的技术决策
 

@@ -103,15 +103,15 @@ class ResumeMetadata:
     email: str | None = None
     phone: str | None = None
 
-    skills: tuple[str, ...] = ()
-    industries: tuple[str, ...] = ()
-    preferred_locations: tuple[str, ...] = ()
-    tags: tuple[str, ...] = ()
+    skills: tuple[str, ...] = ()  #技能列表
+    industries: tuple[str, ...] = ()  #行业列表
+    preferred_locations: tuple[str, ...] = ()  #期望工作地点列表
+    tags: tuple[str, ...] = ()  #标签列表
 
-    educations: tuple[Education, ...] = ()
-    experiences: tuple[WorkExperience, ...] = ()
+    educations: tuple[Education, ...] = ()  #教育经历列表
+    experiences: tuple[WorkExperience, ...] = ()  #工作经历列表
 
-    expected_salary: str | None = None
+    expected_salary: str | None = None   #期望薪资原文（"15k-20k"/"年薪 30 万"）
 
     @property
     def highest_degree_level(self) -> int:
@@ -167,23 +167,29 @@ class DimScore:
 
 @dataclass(frozen=True)
 class ScoreBreakdown:
-    """一次评分的完整结果，也是落进 results.dim_scores_json 的内容。"""
+    """一次评分的完整结果，也是落进 results.dim_scores_json 的内容。
 
-    overall: float
-    dims: tuple[DimScore, ...]
-    semantic: DimScore | None
-    profile: str
-    config_hash: str
+    overall 为 None 表示**完全没有可评分的信息**（六维全缺失且没有语义分）。
+    和 DimScore.score 保持同一套语义：None 是"没有"，0.0 是"很差"。
+    """
+
+    overall: float | None       # 最终综合总分 [0,1]；None = 无任何可用信息
+    dims: tuple[DimScore, ...]  # 六维规则分的DimScore数组
+    semantic: DimScore | None   # 向量语义分单独放这里（不属于六维规则维度）
+    profile: str                # 使用的评分档案名称，例如 "strict" / "base"
+    config_hash: str            # 评分配置文件的哈希值（关键！）
 
     def __post_init__(self) -> None:
-        if not (0.0 <= self.overall <= 1.0):
-            raise ValueError(f"overall 必须在 [0,1]，实际是 {self.overall}")
+        if self.overall is not None and not (0.0 <= self.overall <= 1.0):
+            raise ValueError(
+                f"overall 必须在 [0,1] 或 None，实际是 {self.overall}"
+            )
         names = [d.name for d in self.dims]
         if len(names) != len(set(names)):
             raise ValueError(f"dims 中维度名重复：{names}")
 
     @property
-    def coverage(self) -> float:
+    def coverage(self) -> float:   #信息覆盖率
         """有数据的维度占了多少权重。1.0 表示六维全都有数据。
 
         缺失维度被剔除出分母后，这个数必须一起暴露：
@@ -191,3 +197,66 @@ class ScoreBreakdown:
         对 HR 是两回事。
         """
         return sum(d.weight for d in self.dims if not d.missing)
+
+
+# ============================================================
+# 岗位需求
+#
+# HR 的一句话需求经 LLM 解析后变成这个结构。
+# 评分的每个维度都要拿它做对照物 —— 只有简历那一半是算不出匹配度的。
+# ============================================================
+
+@dataclass(frozen=True)
+class JobRequirement:
+    """结构化的岗位需求。字段与评分六维一一对应。
+
+    技能为什么分「必需 / 优先」而其他维度不分？
+        因为「3 年 Python，会 Go 加分」是招聘里最常见的表述，
+        两者的错配代价不同：缺必需技能 = 不合格，缺优先技能 = 扣几分。
+        至于行业、地点、标签，需求方很少写"必须…否则…加分"的层级，
+        硬套两级反而逼着 LLM 去猜。
+    """
+
+    # ---- skill ----
+    required_skills: tuple[str, ...] = ()
+    preferred_skills: tuple[str, ...] = ()
+
+    # ---- education ----
+    min_degree_level: int = 0          # 0=不限 1=大专 2=本科 3=硕士 4=博士
+
+    # ---- industry ----
+    industries: tuple[str, ...] = ()
+
+    # ---- location ----
+    locations: tuple[str, ...] = ()
+
+    # ---- salary ----
+    salary_min: int | None = None      # 月薪，单位：元
+    salary_max: int | None = None
+
+    # ---- tag ----
+    tags: tuple[str, ...] = ()
+
+    # ---- 经验（同时参与过滤与打分）----
+    # 用「月」而不是「年」：R3 已经做到月粒度，这里再退回年就白算了。
+    # 参考项目按年比较，把 3 年 11 个月和 3 年 0 个月当成同一档。
+    min_experience_months: int | None = None
+
+    #`@dataclass`的`__post_init__`：做数据合法性校验，保证构造出来的实例一定满足业务约束
+    def __post_init__(self) -> None: 
+        if not (0 <= self.min_degree_level <= 4):
+            raise ValueError(
+                f"min_degree_level 必须在 0~4，实际是 {self.min_degree_level}"
+            )
+        if self.min_experience_months is not None and self.min_experience_months < 0:
+            raise ValueError(
+                f"min_experience_months 不能为负，实际是 {self.min_experience_months}"
+            )
+        if (
+            self.salary_min is not None
+            and self.salary_max is not None
+            and self.salary_min > self.salary_max
+        ):
+            raise ValueError(
+                f"salary_min={self.salary_min} 大于 salary_max={self.salary_max}"
+            )

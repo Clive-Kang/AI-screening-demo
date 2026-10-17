@@ -11,6 +11,7 @@ from app.domain.text import (
     is_current_marker,
     merge_experience_months,
     months_between,
+    parse_salary_range,
     parse_year_month,
 )
 
@@ -180,3 +181,41 @@ def test_merge_rejects_invalid_today():
     """today 由程序传入，格式错误是编程错误，必须抛异常而不是静默归零。"""
     with pytest.raises(ValueError):
         merge_experience_months([], "不是日期")
+
+
+# ============================================================
+# parse_salary_range：薪资写法 → (最低月薪, 最高月薪)
+# ============================================================
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("20K-30K", (20000, 30000)),
+        ("20-30k", (20000, 30000)),          # 小写、单点分隔
+        ("20~30K", (20000, 30000)),
+        ("2万-3万", (20000, 30000)),
+        ("20000-30000", (20000, 30000)),
+        ("20K", (20000, 20000)),             # 只写一个数
+        (" 25 K ", (25000, 25000)),          # 空白容忍
+        ("30K-20K", (20000, 30000)),         # 写反了，自动纠正
+    ],
+)
+def test_parse_salary_range_accepts(raw, expected):
+    assert parse_salary_range(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        None,
+        "",
+        "   ",
+        "面议",
+        "negotiable",
+        "年薪 40 万",     # 年薪换算成月薪要除以 12，本系统不做这个假设
+        "20万/年",
+        "没有数字的文本",
+    ],
+)
+def test_parse_salary_range_rejects(raw):
+    assert parse_salary_range(raw) is None
