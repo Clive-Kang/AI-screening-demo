@@ -7,7 +7,7 @@
 
 ## 0. 当前状态（截至 2026-10-16）
 
-> **一句话进度**：阶段 1（领域内核）进行中，已完成 2 轮，**下一步 R3 —— 经历时长计算**。
+> **一句话进度**：阶段 1（领域内核）进行中，已完成 3 轮，**下一步 R4 —— 评分配置加载与校验**。
 > 工作约定见 §7；阶段 1 之后的路线见 [ARCHITECTURE.md](ARCHITECTURE.md) §12。
 
 ### 已完成
@@ -16,15 +16,15 @@
 |---|---|---|---|
 | R1 | 项目脚手架 | `app/__init__.py`、`requirements.txt`、`tests/test_smoke.py` | `79b8011` |
 | R2 | 日期写法归一化 | [text.py](app/domain/text.py)、[test_text.py](tests/unit/test_text.py) | `4a537bc` |
+| R3 | 经历时长计算 | [text.py](app/domain/text.py)（`is_current_marker` / `months_between` / `merge_experience_months`） | `4c21348` |
 
-测试：`python -m pytest tests/ -q` → **24 passed**（命令必须带 `-m`，见 §7）
+测试：`python -m pytest tests/ -q` → **60 passed**（命令必须带 `-m`，见 §7）
 
 ### 阶段 1 待办
 
 | 轮次 | 内容 |
 |---|---|
-| R3 | `is_current_marker` + 经历时长计算（区间归并、月数） ← **下一步** |
-| R4 | `config/scoring.yaml` + `domain/policies.py`（权重和必须 == 1.0，否则拒绝启动） |
+| R4 | `config/scoring.yaml` + `domain/policies.py`（权重和必须 == 1.0，否则拒绝启动） ← **下一步** |
 | R5 | `domain/models.py` 领域模型 |
 | R6 | `domain/scoring.py` 六维 + 语义维加权 |
 | R7 | `domain/filtering.py` 硬性过滤 + 三种 `unknown_field_policy` |
