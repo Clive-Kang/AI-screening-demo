@@ -105,7 +105,7 @@ def parse_year_month(raw: str | None) -> str | None:
 
 # 「在职中」的标记词。统一小写、去首尾空白后做**整串**比对，不做模糊匹配——
 # "至今为止的思考"这种文本不该被当成在职中。
-_CURRENT_MARKERS = frozenset({
+_CURRENT_MARKERS = frozenset({     #frozenset：不可变集合，适合做常量查找，查询 O (1)
     "至今", "至今为止", "现在", "目前", "在职", "在职中", "当前",
     "present", "now", "current",
 })
@@ -114,10 +114,10 @@ _CURRENT_MARKERS = frozenset({
 # 这里故意用元组而不是 dataclass：领域模型 DateRange 要到 R5 才定义，
 # 底层的文本工具不能反过来依赖上层结构。
 Period = tuple[str | None, str | None, bool]
+        #含义：变量可以是字符串，也可以是`None`。
 
-
-def is_current_marker(raw: str | None) -> bool:
-    """判断一个字符串是不是「在职中」的标记。
+def is_current_marker(raw: str | None) -> bool:   #"是否是在职标记"函数
+    """判断一个字符串是不是「在职中」的标记。 raw 是形参:传入**结束时间字段的原始文本**。
 
     '至今' / 'Present' / '现在'   → True
     '' / None / '今' / '2020-07'  → False
@@ -127,7 +127,7 @@ def is_current_marker(raw: str | None) -> bool:
     """
     if not isinstance(raw, str):
         return False
-    return raw.strip().lower() in _CURRENT_MARKERS
+    return raw.strip().lower() in _CURRENT_MARKERS  #检查处理后的字符串**是否存在于冻结集合的关键词里面**。
 
 
 def _month_index(ym: str | None) -> int | None:
@@ -162,8 +162,8 @@ def months_between(start_ym: str | None, end_ym: str | None) -> int | None:
         return None
 
     months = end_idx - start_idx
-    return months if months >= 0 else None
-
+    return months if months >= 0 else None 
+    #值1 if 条件 else 值2   条件成立返回值1 否则返回值2
 
 def merge_experience_months(periods: Sequence[Period], today_ym: str) -> int:
     """多段工作经历的总月数，时间重叠的部分取并集。
