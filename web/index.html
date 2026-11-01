@@ -1,0 +1,616 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>智能简历筛选</title>
+<style>
+  /* 单文件页面：不引任何 CDN，断网也能录演示 */
+  :root {
+    --bg: #f4f6f9;
+    --card: #ffffff;
+    --ink: #111827;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --brand: #2563eb;
+    --ok: #16a34a;
+    --warn: #d97706;
+    --bad: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.6 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  header {
+    padding: 28px 32px 20px;
+    background: linear-gradient(135deg, #1e3a8a, #2563eb);
+    color: #fff;
+  }
+  header h1 { margin: 0 0 6px; font-size: 24px; letter-spacing: .5px; }
+  header p { margin: 0; opacity: .85; font-size: 14px; }
+  main {
+    display: grid;
+    grid-template-columns: 360px minmax(0, 1fr);
+    gap: 20px;
+    padding: 20px 32px 48px;
+    align-items: start;
+  }
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+  }
+  .panel h2 {
+    margin: 0 0 14px;
+    font-size: 15px;
+    color: var(--muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .6px;
+  }
+  /* ---------- 上传 ---------- */
+  #drop {
+    border: 2px dashed #cbd5e1;
+    border-radius: 10px;
+    padding: 22px 16px;
+    text-align: center;
+    color: var(--muted);
+    transition: .15s;
+    cursor: pointer;
+  }
+  #drop.hot { border-color: var(--brand); background: #eff6ff; color: var(--brand); }
+  #drop b { color: var(--brand); }
+  #resumes { list-style: none; margin: 14px 0 0; padding: 0; }
+  #resumes li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 14px;
+  }
+  #resumes li:last-child { border-bottom: 0; }
+  .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge {
+    flex: none;
+    font-size: 12px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: var(--muted);
+  }
+  .badge.indexed { background: #dcfce7; color: var(--ok); }
+  .badge.failed { background: #fee2e2; color: var(--bad); }
+  .badge.queued, .badge.parsed, .badge.extracted { background: #fef3c7; color: var(--warn); }
+  /* ---------- 表单 ---------- */
+  textarea {
+    width: 100%;
+    min-height: 84px;
+    resize: vertical;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    font: inherit;
+    color: var(--ink);
+  }
+  textarea:focus { outline: 2px solid #bfdbfe; border-color: var(--brand); }
+  select {
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    font: inherit;
+    color: var(--ink);
+    background: #fff;
+    cursor: pointer;
+  }
+  .row { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
+  button {
+    border: 0;
+    border-radius: 10px;
+    padding: 10px 20px;
+    font: inherit;
+    font-weight: 600;
+    color: #fff;
+    background: var(--brand);
+    cursor: pointer;
+  }
+  button:disabled { background: #c7d2fe; cursor: not-allowed; }
+  button.ghost {
+    background: transparent;
+    color: var(--bad);
+    border: 1px solid #fecaca;
+    padding: 7px 14px;
+    font-weight: 500;
+    font-size: 13px;
+  }
+  button.ghost:hover:not(:disabled) { background: #fef2f2; }
+  button.ghost:disabled { color: #d1d5db; border-color: var(--line); }
+  .hint { color: var(--muted); font-size: 13px; }
+  #runStatus { margin-top: 16px; }
+  .bar {
+    height: 8px;
+    border-radius: 999px;
+    background: #e5e7eb;
+    overflow: hidden;
+    margin: 10px 0 6px;
+  }
+  .bar > div {
+    height: 100%;
+    width: 0;
+    background: var(--brand);
+    transition: width .4s ease;
+  }
+  /* ---------- 结果 ---------- */
+  #results { margin-top: 20px; display: grid; gap: 14px; }
+  .cand {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px 18px;
+    background: #fff;
+  }
+  .cand.rejected { background: #fcfcfd; border-style: dashed; }
+  .cand-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .rank { font-size: 13px; color: var(--muted); font-weight: 700; }
+  .cname { font-size: 17px; font-weight: 700; }
+  .score { margin-left: auto; font-size: 22px; font-weight: 800; color: var(--brand); }
+  .cand.rejected .score { color: var(--muted); }
+  .tag { font-size: 12px; padding: 2px 9px; border-radius: 999px; }
+  .tag.pass { background: #dcfce7; color: var(--ok); }
+  .tag.reject { background: #fee2e2; color: var(--bad); }
+  .reason { margin: 8px 0 0; color: var(--bad); font-size: 13px; }
+  .dims { margin-top: 14px; display: grid; gap: 7px; }
+  .dim { display: grid; grid-template-columns: 84px 1fr 48px; gap: 10px; align-items: center; font-size: 13px; }
+  .dim .track { height: 6px; border-radius: 999px; background: #eef2f7; overflow: hidden; }
+  .dim .fill { height: 100%; background: #93c5fd; }
+  .dim.na { color: #9ca3af; }
+  .dim.na .track { background: repeating-linear-gradient(90deg, #f1f5f9 0 6px, #fff 6px 12px); }
+  details { margin-top: 14px; }
+  summary { cursor: pointer; color: var(--brand); font-size: 14px; }
+  .report { margin-top: 8px; color: #374151; font-size: 14px; }
+  .report h3, .report h4 { margin: 14px 0 6px; font-size: 14px; color: var(--ink); }
+  .report p { margin: 6px 0; }
+  .report ul { margin: 6px 0; padding-left: 20px; }
+  .empty { color: var(--muted); text-align: center; padding: 28px 0; }
+  .error { color: var(--bad); font-size: 14px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>智能简历筛选</h1>
+  <p>上传简历 → 一句话岗位需求 → 语义召回 · 硬性过滤 · 六维评分 · AI 评估报告</p>
+</header>
+
+<main>
+  <!-- ============ 左：简历库 ============ -->
+  <section class="panel">
+    <h2>1. 简历库</h2>
+    <div id="drop">
+      拖拽 PDF 到这里，或 <b>点击选择</b>
+      <input id="file" type="file" multiple accept="application/pdf" hidden>
+    </div>
+    <ul id="resumes"></ul>
+    <p class="hint" id="resumeHint">还没有简历，先上传几份 PDF。</p>
+    <div class="row">
+      <button id="clear" class="ghost">清空简历库</button>
+    </div>
+  </section>
+
+  <!-- ============ 右：筛选 ============ -->
+  <section class="panel">
+    <h2>2. 岗位需求</h2>
+    <textarea id="query">招 Python 后端工程师，本科及以上，3 年以上工作经验</textarea>
+    <div class="row">
+      <label class="hint" for="profile">评分档案</label>
+      <select id="profile"></select>
+      <span class="hint" id="profileHint"></span>
+    </div>
+    <div class="row">
+      <button id="submit">开始筛选</button>
+      <span class="hint" id="submitHint">提示：简历全部入库后才能开始</span>
+    </div>
+    <div id="runStatus"></div>
+    <div id="results"></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+
+const API = "/api/v1";
+const $ = (sel) => document.querySelector(sel);
+
+let resumes = [];          // 最近一次拉到的简历列表
+let profiles = [];         // 可用评分档案（从 /profiles 拉）
+let runTimer = null;       // run 轮询定时器
+let resumeTimer = null;    // 简历状态轮询定时器
+
+// ------------------------------------------------------------
+// 通用请求：非 2xx 时把后端的 detail 抛出来，页面能显示人话
+// ------------------------------------------------------------
+async function api(path, options) {
+  const resp = await fetch(API + path, options);
+  if (!resp.ok) {
+    let detail = resp.statusText;
+    try { detail = (await resp.json()).detail || detail; } catch (_) {}
+    throw new Error(detail);
+  }
+  return resp.status === 204 ? null : resp.json();
+}
+
+// ------------------------------------------------------------
+// 评分档案：不同档案的维度权重不同，选错排序就错 —— 让使用者显式选
+// ------------------------------------------------------------
+const DIM_NAMES = {
+  skill: "技能", education: "学历", industry: "行业",
+  location: "地点", salary: "薪资", tag: "标签",
+};
+
+async function loadProfiles() {
+  try {
+    const data = await api("/profiles");
+    profiles = data.profiles || [];
+    const box = $("#profile");
+    box.innerHTML = "";
+    for (const p of profiles) {
+      const opt = document.createElement("option");
+      opt.value = p.name;
+      opt.textContent = p.name;
+      if (p.name === data.default) opt.selected = true;   // 服务端默认
+      box.appendChild(opt);
+    }
+    renderProfileHint();
+  } catch (err) {
+    // 拉不到也不禁用提交：后端会用 default_profile，只是这里看不到权重
+    $("#profileHint").textContent = "档案列表加载失败，将使用服务端默认档案";
+  }
+}
+
+function renderProfileHint() {
+  const p = profiles.find((x) => x.name === $("#profile").value);
+  if (!p) return;
+  // 按权重降序取前三，一眼看出这套档案偏重什么
+  const top = Object.entries(p.dims || {})
+    .sort((a, b) => b[1].weight - a[1].weight)
+    .slice(0, 3)
+    .map(([key, dim]) => `${DIM_NAMES[key] || key} ${Math.round(dim.weight * 100)}%`);
+  $("#profileHint").textContent = top.join(" · ");
+}
+
+// ------------------------------------------------------------
+// 简历列表：上传后每 1.5 秒刷新，直到没有"处理中"的状态
+// ------------------------------------------------------------
+const PENDING = new Set(["queued", "parsed", "extracted"]);
+
+async function loadResumes() {
+  const data = await api("/resumes?limit=100");
+  resumes = data.items;
+
+  const list = $("#resumes");
+  list.innerHTML = "";
+  for (const r of resumes) {
+    const li = document.createElement("li");
+    const name = document.createElement("span");
+    name.className = "fname";
+    name.textContent = r.name ? `${r.name}（${r.filename}）` : r.filename;
+    name.title = r.error ? `${r.filename}\n${r.error}` : r.filename;
+    const badge = document.createElement("span");
+    badge.className = "badge " + r.status;
+    badge.textContent = r.status;
+    li.append(name, badge);
+    list.append(li);
+  }
+
+  const pending = resumes.filter((r) => PENDING.has(r.status));
+  const failed = resumes.filter((r) => r.status === "failed");
+  const ready = resumes.filter((r) => r.status === "indexed");
+
+  $("#resumeHint").textContent = resumes.length === 0
+    ? "还没有简历，先上传几份 PDF。"
+    : `共 ${resumes.length} 份：已入库 ${ready.length} 份`
+      + (pending.length ? `，处理中 ${pending.length} 份…` : "")
+      + (failed.length ? `，失败 ${failed.length} 份` : "");
+
+  $("#submit").disabled = ready.length === 0 || !runIdle();
+  return pending.length;
+}
+
+function runIdle() {
+  return !runTimer;   // 有轮询在跑 = 正在筛选
+}
+
+async function uploadFiles(files) {
+  const pdfs = [...files].filter((f) => f.name.toLowerCase().endsWith(".pdf"));
+  if (!pdfs.length) return;
+
+  for (const file of pdfs) {
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      await api("/resumes", { method: "POST", body: form });
+    } catch (err) {
+      alert(`${file.name} 上传失败：${err.message}`);
+    }
+  }
+  await loadResumes();
+  startResumePolling();
+}
+
+function startResumePolling() {
+  clearInterval(resumeTimer);
+  resumeTimer = setInterval(async () => {
+    try {
+      const pending = await loadResumes();
+      if (!pending) clearInterval(resumeTimer);
+    } catch (_) { /* 服务重启的瞬间失败一次，下一轮会恢复 */ }
+  }, 1500);
+}
+
+// ------------------------------------------------------------
+// 清空简历库：破坏性操作，必须二次确认
+// ------------------------------------------------------------
+async function clearResumes() {
+  const ok = confirm(
+    "将删除全部简历、原始 PDF、向量索引和未完成的任务，且不可恢复。\n确定清空？"
+  );
+  if (!ok) return;
+
+  try {
+    await api("/resumes", { method: "DELETE" });
+  } catch (err) {
+    alert("清空失败：" + err.message);
+    return;
+  }
+
+  // 正在进行的筛选轮询也要停掉，否则它会继续查一个已经不存在的 run
+  clearInterval(runTimer);
+  runTimer = null;
+  clearInterval(resumeTimer);
+  $("#results").innerHTML = "";
+  $("#runStatus").innerHTML = "";
+
+  await loadResumes();
+  $("#resumeHint").textContent = "简历库已清空。";
+}
+
+// ------------------------------------------------------------
+// 提交筛选 + 轮询进度
+// ------------------------------------------------------------
+async function startRun() {
+  const query = $("#query").value.trim();
+  if (!query) return;
+
+  $("#results").innerHTML = "";
+  $("#runStatus").innerHTML = "";
+  $("#submit").disabled = true;
+  clearInterval(runTimer);
+
+  let submitted;
+  try {
+    submitted = await api("/runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query_text: query,
+        // 没选中任何档案就不传，后端会用 default_profile
+        profile: $("#profile").value || null,
+      }),
+    });
+  } catch (err) {
+    $("#runStatus").innerHTML = `<p class="error">提交失败：${escapeHtml(err.message)}</p>`;
+    $("#submit").disabled = false;
+    return;
+  }
+
+  if (submitted.deduplicated) {
+    $("#runStatus").innerHTML =
+      `<p class="hint">相同条件的结果已存在（幂等命中，无额外费用），直接读取…</p>`;
+  }
+  pollRun(submitted.run_id);
+}
+
+const STAGES = { recall: "召回", filter: "硬性过滤", score: "评分", analyze: "生成报告", done: "完成" };
+
+async function pollRun(runId) {
+  let run;
+  try {
+    run = await api(`/runs/${runId}`);
+  } catch (err) {
+    $("#runStatus").innerHTML = `<p class="error">查询失败：${escapeHtml(err.message)}</p>`;
+    $("#submit").disabled = false;
+    return;
+  }
+
+  renderRunStatus(run);
+
+  if (["succeeded", "partial", "failed", "cancelled"].includes(run.status)) {
+    clearInterval(runTimer);
+    runTimer = null;
+    $("#submit").disabled = false;
+    if (run.status === "failed") {
+      $("#runStatus").innerHTML +=
+        `<p class="error">筛选失败：${escapeHtml(run.error || "未知错误")}</p>`;
+      return;
+    }
+    await showResults(runId);
+    return;
+  }
+
+  if (!runTimer) runTimer = setInterval(() => pollRun(runId), 1500);
+}
+
+function renderRunStatus(run) {
+  const p = run.progress || {};
+  const analyzed = p.analyzed || 0;
+  const scored = p.scored || 0;
+  // 报告阶段没有总数可依，用一个收敛的伪进度：analyzed/10
+  let pct = 0;
+  if (run.stage === "recall") pct = 8;
+  else if (run.stage === "filter") pct = 25;
+  else if (run.stage === "score") pct = 55;
+  else if (run.stage === "analyze") pct = 70 + Math.min(analyzed / 10, 0.28) * 100;
+  else if (run.stage === "done") pct = 100;
+
+  const counts = [
+    `召回 ${p.recall ?? 0}`,
+    `通过 ${p.filtered ?? 0}`,
+    `评分 ${scored}`,
+    `报告 ${analyzed}`,
+  ].join(" · ");
+
+  const label = run.status === "queued" ? "排队中（等待 worker）"
+              : run.status === "running" ? STAGES[run.stage] || run.stage
+              : run.status;
+
+  $("#runStatus").innerHTML = `
+    <div class="row" style="justify-content:space-between;margin:0">
+      <strong>${escapeHtml(label)}</strong>
+      <span class="hint">${escapeHtml(counts)}</span>
+    </div>
+    <div class="bar"><div style="width:${Math.min(pct, 100).toFixed(0)}%"></div></div>
+  `;
+}
+
+// ------------------------------------------------------------
+// 结果渲染
+// ------------------------------------------------------------
+async function showResults(runId) {
+  const data = await api(`/runs/${runId}/results?include_rejected=true&limit=100`);
+  const box = $("#results");
+  box.innerHTML = "";
+
+  if (!data.items.length) {
+    box.innerHTML = `<p class="empty">没有召回到候选人 —— 简历库为空？</p>`;
+    return;
+  }
+
+  for (const item of data.items) {
+    box.append(renderCandidate(item));
+  }
+}
+
+function renderCandidate(item) {
+  const card = document.createElement("div");
+  card.className = "cand" + (item.passed ? "" : " rejected");
+
+  const head = document.createElement("div");
+  head.className = "cand-head";
+  head.innerHTML = `
+    <span class="rank">#${item.rank ?? "-"}</span>
+    <span class="cname">${escapeHtml(item.name || item.resume_id.slice(0, 8))}</span>
+    <span class="tag ${item.passed ? "pass" : "reject"}">
+      ${item.passed ? "通过" : "淘汰"}
+    </span>
+    <span class="score">${fmt(item.overall_score)}</span>
+  `;
+  card.append(head);
+
+  if (!item.passed && item.reject_reason) {
+    const p = document.createElement("p");
+    p.className = "reason";
+    p.textContent = "淘汰原因：" + item.reject_reason;
+    card.append(p);
+  }
+
+  const dims = document.createElement("div");
+  dims.className = "dims";
+  for (const d of item.dims) {
+    const na = d.score === null || d.score === undefined;
+    const row = document.createElement("div");
+    row.className = "dim" + (na ? " na" : "");
+    row.title = d.reason || "";
+    row.innerHTML = `
+      <span>${escapeHtml(d.name)}</span>
+      <div class="track"><div class="fill" style="width:${na ? 0 : (d.score * 100).toFixed(0)}%"></div></div>
+      <span>${na ? "不适用" : fmt(d.score)}</span>
+    `;
+    dims.append(row);
+  }
+  card.append(dims);
+
+  if (item.analysis) {
+    const det = document.createElement("details");
+    const sum = document.createElement("summary");
+    sum.textContent = "查看 AI 评估报告";
+    const body = document.createElement("div");
+    body.className = "report";
+    body.innerHTML = mdToHtml(item.analysis);
+    det.append(sum, body);
+    card.append(det);
+  }
+
+  return card;
+}
+
+// 极简 Markdown 渲染（标题 / 加粗 / 无序列表 / 段落），不引第三方库
+function mdToHtml(text) {
+  const esc = escapeHtml(text);
+  const lines = esc.split("\n");
+  const out = [];
+  let inList = false;
+
+  const closeList = () => { if (inList) { out.push("</ul>"); inList = false; } };
+
+  for (const line of lines) {
+    let m;
+    if ((m = line.match(/^###\s+(.*)$/))) { closeList(); out.push(`<h4>${m[1]}</h4>`); }
+    else if ((m = line.match(/^##\s+(.*)$/))) { closeList(); out.push(`<h3>${m[1]}</h3>`); }
+    else if ((m = line.match(/^#\s+(.*)$/))) { closeList(); out.push(`<h3>${m[1]}</h3>`); }
+    else if ((m = line.match(/^\s*[-*]\s+(.*)$/))) {
+      if (!inList) { out.push("<ul>"); inList = true; }
+      out.push(`<li>${bold(m[1])}</li>`);
+    }
+    else if (!line.trim()) { closeList(); }
+    else { closeList(); out.push(`<p>${bold(line)}</p>`); }
+  }
+  closeList();
+  return out.join("");
+}
+
+const bold = (s) => s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+
+function fmt(x) {
+  return x === null || x === undefined ? "—" : Number(x).toFixed(3);
+}
+
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// ------------------------------------------------------------
+// 事件绑定
+// ------------------------------------------------------------
+const drop = $("#drop");
+drop.addEventListener("click", () => $("#file").click());
+$("#file").addEventListener("change", (e) => uploadFiles(e.target.files));
+
+["dragenter", "dragover"].forEach((ev) =>
+  drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("hot"); })
+);
+["dragleave", "drop"].forEach((ev) =>
+  drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("hot"); })
+);
+drop.addEventListener("drop", (e) => uploadFiles(e.dataTransfer.files));
+
+$("#submit").addEventListener("click", startRun);
+$("#clear").addEventListener("click", clearResumes);
+$("#profile").addEventListener("change", renderProfileHint);
+loadProfiles();   // 失败只影响提示，不影响提交
+
+// 初次加载：有处理中的简历就自动开始轮询（比如页面刷新后 worker 还在跑）
+loadResumes().then((pending) => { if (pending) startResumePolling(); }).catch(() => {
+  $("#resumeHint").textContent = "接口不可用 —— 服务启动了吗？";
+});
+</script>
+</body>
+</html>

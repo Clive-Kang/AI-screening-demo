@@ -1,0 +1,58 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 702 >>
+stream
+BT
+/F1 11 Tf
+50 800 Td
+14 TL
+(Li Si) Tj T*
+(Backend Engineer | Shanghai | lisi@example.com) Tj T*
+() Tj T*
+(SUMMARY) Tj T*
+(2 years of experience writing Go services.) Tj T*
+() Tj T*
+(SKILLS) Tj T*
+(Go, Gin, MySQL, Redis, Linux) Tj T*
+() Tj T*
+(EXPERIENCE) Tj T*
+(2024-01 - present  Backend Engineer, ShopNow, Shanghai) Tj T*
+(  Built order services in Go.) Tj T*
+(2023-05 - 2023-12  Junior Developer, SmallApp, Shanghai) Tj T*
+(  Maintained internal tools.) Tj T*
+() Tj T*
+(EDUCATION) Tj T*
+(2020-09 - 2023-06  Associate Degree in Software Technology,) Tj T*
+(Shanghai Vocational College) Tj T*
+() Tj T*
+(EXPECTED SALARY) Tj T*
+(18000-22000 CNY per month) Tj T*
+(PREFERRED LOCATION: Shanghai) Tj T*
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000311 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1064
+%%EOF

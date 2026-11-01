@@ -1,4 +1,4 @@
-"""领域模型：业务里"一份简历长什么样"的正式定义。
+"""领域模型：业务里"一份简历长什么样"的正式定义。(该怎么清洗拿到的数据)
 
 这些是纯数据载体 —— 不做 IO、不依赖框架、不 import adapter。
 它们同时被三处使用：
@@ -11,6 +11,7 @@
 """
 
 from dataclasses import dataclass, field
+from enum import Enum
 
 from app.domain.text import Period, merge_experience_months, parse_year_month
 
@@ -290,3 +291,146 @@ class FilterResult:
             raise ValueError("passed=True 时不应该有淘汰原因")
         if not self.passed and not self.reasons:
             raise ValueError("passed=False 时必须给出至少一条原因")
+
+
+# ============================================================
+# 简历本体
+#
+# ResumeMetadata 只是"简历里抽出来的结构化信息"，
+# 一份简历还有文件、原文、处理状态这些外围属性 —— 那些在这里。
+# 两者合起来才是 resumes 表的一行（ARCHITECTURE.md §4.2）。
+# ============================================================
+
+class ResumeStatus(str, Enum):
+    """简历走到流水线的哪一步了。
+
+    继承 str 是为了能直接塞进 SQLite 的 TEXT 列、也能被 JSON 序列化，
+    不用每次 `.value` 一下。参考项目没有状态字段，前端只能靠"在不在
+    内存字典里"猜，重启后就全丢了。
+    """
+
+    QUEUED = "queued"        # 排队:收到文件，还没解析
+    PARSED = "parsed"        # 已解析:PDF → 纯文本
+    EXTRACTED = "extracted"  # 已提取:文本 → ResumeMetadata
+    INDEXED = "indexed"      # 已入库(可被检索):向量已入库，可被检索
+    FAILED = "failed"        # 已失败:任一环节失败，原因在 error 里
+
+
+@dataclass(frozen=True)
+class Resume:
+    """一份简历的完整状态。
+
+    raw_text 和 metadata 为什么可以是 None？
+        因为上传是异步的（ARCHITECTURE.md §5.5）：刚落到 queued 状态的
+        简历还没解析、更没抽取。用一个"空的 ResumeMetadata()"冒充
+        已抽取，会让下游分不清"这人什么都没写"和"我们还没看"。
+
+    id 由是谁生成的？
+        仓储层生成（sqlite_repo），domain 只管它是个字符串。
+        领域层不 import uuid，保持零环境依赖。
+    """
+
+    id: str
+    filename: str
+    content_sha256: str                  # 文本哈希值:用于去重；同一份文件只入库一次
+    raw_text: str | None = None
+    metadata: ResumeMetadata | None = None
+    blob_path: str | None = None         # 原始文件在磁盘上的位置
+    status: ResumeStatus = ResumeStatus.QUEUED
+    error: str | None = None             # status=FAILED 时的原因
+    created_at: str = ""                 # ISO 格式字符串，由仓储层填
+    # 抽取这份简历用的是哪一版 prompt。换模型/改 prompt 后，
+    # 能区分"结果不一样是因为简历变了，还是因为 prompt 变了"。
+    extractor_prompt_version: str = "unknown"
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("Resume.id 不能为空")
+        if not self.content_sha256:
+            raise ValueError("Resume.content_sha256 不能为空")
+        # 不变量：状态和内容必须自洽。
+        # 否则会出现"状态是 indexed，但根本没有元数据"这种没法排查的行。
+        if self.status in (ResumeStatus.EXTRACTED, ResumeStatus.INDEXED):
+            if self.metadata is None:
+                raise ValueError(f"status={self.status.value} 但 metadata 为空")
+        if self.status is ResumeStatus.FAILED and not self.error:
+            raise ValueError("status=failed 时必须给出 error")
+
+
+# ============================================================
+# 一次筛选任务（run）
+#
+# 对应 runs 表（ARCHITECTURE.md §4.2）。它记录的是「这一次筛选跑到哪了」，
+# 不记录结果 —— 结果是 results 表，按 (run_id, rank) 单独存。
+# 分开的理由：进度要频繁更新（每阶段一次），结果只在最后写一次，
+# 混在一行里会让每次更新进度都重写一遍几十 KB 的 JSON。
+# ============================================================
+
+class RunStatus(str, Enum):
+    """一次筛选任务的生命周期。
+
+    PARTIAL 是参考项目没有的状态：analyze 阶段因为 token 预算超限被中止，
+    但召回/过滤/评分的结果是有效的，不该整体判失败。
+    """
+
+    QUEUED = "queued"        # 已接受，等 worker 取
+    RUNNING = "running"      # 正在跑，stage 字段说明跑到哪一步
+    SUCCEEDED = "succeeded"  # 全流程完成
+    PARTIAL = "partial"      # 部分成功:主流程完成，analyze 阶段未跑完
+    FAILED = "failed"        # 出错，reason 在 error 里
+    CANCELLED = "cancelled"  # 用户 DELETE 掉的
+
+
+class RunStage(str, Enum):
+    """run 内部的阶段，用于前端轮询显示进度。"""
+
+    RECALL = "recall"      # 向量召回
+    FILTER = "filter"      # 硬性过滤
+    SCORE = "score"        # 评分排序
+    ANALYZE = "analyze"    # LLM 生成报告
+    DONE = "done"          # 全部结束
+
+
+@dataclass(frozen=True)
+class Run:
+    """一次筛选任务的状态快照。
+
+    这里没有 results —— 结果按候选人一行存，和 run 是一对多。
+    把结果塞进 Run 意味着查一次进度要把所有候选人的报告都读出来。
+
+    progress 为什么是 tuple 而不是 dict？
+        同 ResumeDoc.vector：frozen dataclass 里的 dict 照样能被改。
+        用 ((阶段名, 计数), ...) 保存，读的时候 dict(run.progress) 转回去。
+    """
+
+    id: str                               #run 唯一 ID，主键
+    query_text: str                       # HR 那句原始需求
+    profile: str                          # 使用哪个评分档案（tech / strict …）
+    status: RunStatus = RunStatus.QUEUED  #RunStatus 枚举，任务整体状态
+    stage: RunStage | None = None         #RunStage 枚举，当前执行阶段
+    idempotency_key: str = ""             #幂等 key 用 query、profile、简历库版本做 sha256。防止重复提交完全相同的筛选请求
+    config_snapshot_json: str = "{}"      #本次生效的完整配置，用于事后复算.以后配置文件 (scoring.yaml) 改了，依然可以拿这份快照**复现本次打分结果**，用于审计、对比。
+    progress: tuple[tuple[str, int], ...] = ()  #进度元组
+    recall_n: int = 0                     #各阶段数量统计：召回多少、      
+    filtered_n: int = 0                   #过滤剩下多少
+    scored_n: int = 0                     #打分多少
+    analyzed_n: int = 0                   #LLM 生成报告多少
+    error: str | None = None              #失败原因，只有 FAILED 状态才需要填
+    created_at: str = ""                  #任务创建时间
+    finished_at: str | None = None        #任务结束时间，只有 SUCCEEDED / PARTIAL / FAILED / CANCELLED 状态才需要填
+
+    def __post_init__(self) -> None:  #实例创建后校验逻辑
+        if not self.id:
+            raise ValueError("Run.id 不能为空")
+        if not self.query_text.strip():
+            raise ValueError("Run.query_text 不能为空")
+        if not self.profile:
+            raise ValueError("Run.profile 不能为空")
+        if self.status is RunStatus.FAILED and not self.error:
+            raise ValueError("status=failed 时必须给出 error")
+        # 已结束的状态必须有结束时间，否则前端永远显示"进行中"
+        if self.status in (
+            RunStatus.SUCCEEDED, RunStatus.PARTIAL,
+            RunStatus.FAILED, RunStatus.CANCELLED,
+        ) and not self.finished_at:
+            raise ValueError(f"status={self.status.value} 时必须给出 finished_at")

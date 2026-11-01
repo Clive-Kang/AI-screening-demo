@@ -13,6 +13,9 @@ from app.domain.models import (
     Education,
     JobRequirement,
     ResumeMetadata,
+    Run,
+    RunStage,
+    RunStatus,
     ScoreBreakdown,
     WorkExperience,
 )
@@ -244,3 +247,54 @@ def test_requirement_allows_half_open_salary():
     """只写一端（"20K 以上"）是合法的。"""
     assert JobRequirement(salary_min=20000).salary_max is None
     assert JobRequirement(salary_max=40000).salary_min is None
+
+
+# ============================================================
+# Run
+# ============================================================
+
+def test_run_defaults_to_queued():
+    run = Run(id="run1", query_text="招 Python 后端", profile="tech")
+    assert run.status is RunStatus.QUEUED
+    assert run.stage is None
+    assert run.progress == ()
+
+
+def test_run_requires_query_and_profile():
+    with pytest.raises(ValueError, match="id"):
+        Run(id="", query_text="x", profile="tech")
+    with pytest.raises(ValueError, match="query_text"):
+        Run(id="r", query_text="   ", profile="tech")
+    with pytest.raises(ValueError, match="profile"):
+        Run(id="r", query_text="x", profile="")
+
+
+def test_failed_run_must_carry_error():
+    with pytest.raises(ValueError, match="error"):
+        Run(id="r", query_text="x", profile="tech",
+            status=RunStatus.FAILED, finished_at="2026-10-18T10:00:00")
+
+
+def test_finished_run_must_carry_finished_at():
+    """没有结束时间的"已完成"会让前端永远转圈。"""
+    with pytest.raises(ValueError, match="finished_at"):
+        Run(id="r", query_text="x", profile="tech", status=RunStatus.SUCCEEDED)
+
+
+def test_running_run_needs_no_finished_at():
+    run = Run(id="r", query_text="x", profile="tech",
+              status=RunStatus.RUNNING, stage=RunStage.RECALL)
+    assert run.finished_at is None
+
+
+def test_finished_run_is_valid_with_timestamp():
+    run = Run(id="r", query_text="x", profile="tech",
+              status=RunStatus.PARTIAL, finished_at="2026-10-18T10:00:00")
+    assert run.status is RunStatus.PARTIAL
+
+
+def test_run_progress_roundtrips_as_dict():
+    """tuple 存进度，读的时候转回 dict —— 兼顾不可变与可用性。"""
+    run = Run(id="r", query_text="x", profile="tech",
+              progress=(("recall", 120), ("filtered", 34)))
+    assert dict(run.progress) == {"recall": 120, "filtered": 34}

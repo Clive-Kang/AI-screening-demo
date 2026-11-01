@@ -20,15 +20,17 @@ from app.domain.models import (
     ScoreBreakdown,
 )
 from app.domain.policies import ScoringProfile
-from app.domain.text import parse_salary_range
+from app.domain.text import normalize_token, parse_salary_range
 
 
 def _norm(text: str) -> str:  #作用：统一技能文本格式，消除大小写、空格干扰。
     """技能/标签比较前的归一化：小写、去掉空格。
 
     输出 'Python 3' 和 'python3' 归一后都是 'python3'。
+    实现委托给 text.normalize_token —— 拆表写入用的是同一个函数，
+    否则「评分归一成 python3、库里归一成 python 3」会让 SQL 下推查不到人。
     """
-    return text.strip().lower().replace(" ", "")
+    return normalize_token(text)
 
 
 def _token_hit(wanted: str, pool: set[str], min_len: int = 3) -> bool: #技能命中判断

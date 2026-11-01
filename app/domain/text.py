@@ -286,3 +286,16 @@ def parse_salary_range(raw: str | None) -> tuple[int, int] | None:
     if low <= 0:
         return None
     return int(low), int(high)
+
+
+def normalize_token(text: str) -> str:
+    """归一化函数
+    技能 / 行业 / 城市 / 标签比较前的统一写法：小写、去空格。
+
+    'Python 3' 和 'python3' 归一后都是 'python3'。
+
+    为什么放在 text.py 而不是各模块各写一行？
+        三处要用它：评分比较（scoring）、拆表写入（sqlite_repo）、
+        将来的 SQL 下推查询条件。三份复制品迟早有一份忘了改。
+    """
+    return text.strip().lower().replace(" ", "")

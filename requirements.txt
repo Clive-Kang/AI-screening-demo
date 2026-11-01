@@ -11,5 +11,14 @@
 pydantic        # 配置文件的 schema 校验（scoring.yaml → ScoringProfile）
 PyYAML          # 读取 config/scoring.yaml
 
-# ===== 测试 =====
+# ===== 阶段 2：持久化 + 端口/适配器 =====
+pydantic-settings  # Settings：读 .env / 环境变量 + 启动时校验（基类来自它，pydantic 本身不含）
+python-dotenv      # pydantic-settings 解析 .env 文件时需要（含 ${VAR} 插值）
+pypdf              # PDF → 纯文本（纯 Python，不需要 C 扩展）
+openai             # OpenAI 兼容协议的客户端（DeepSeek 对话 + Ollama 嵌入共用）
+sqlite-vec         # 向量索引扩展：与业务表同库同文件，可丢弃可重建
+# sqlite3 / json / hashlib / threading 都是标准库，不写进这里
+
+# ===== 测试与验收 =====
 pytest
+httpx              # FastAPI TestClient 的底座；scripts/smoke_test.py 也用它

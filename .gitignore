@@ -45,6 +45,10 @@ htmlcov/
 # ---------- 本项目运行时会产生的数据（阶段 2 起出现）----------
 # SQLite 真源、向量索引、简历文本缓存 —— 都是可重建的运行时产物。
 *.db
+# WAL 模式下 SQLite 会额外生成 app.db-wal / app.db-shm。
+# 通配符 *.db 匹配不到这两个后缀，必须单独写 —— 它们和 .db 一样是运行时产物。
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
 chroma_db/
@@ -52,8 +56,11 @@ cache/
 uploads/
 logs/
 *.log
-# data/ 暂不忽略：将来若放"示例简历语料"是要入库的，到阶段 6 再按需收窄。
-# 现阶段先不忽略，避免误把要提交的样例数据挡在门外。
+# data/ 下只有两样东西要区分对待：
+#   data/blobs/      用户上传的原始简历 —— 属于运行时数据，含个人隐私，绝不入库
+#   data/app.db      已被上面的 *.db 忽略（真源，可重建）
+#   data/samples/    验收样本，由 scripts/make_samples.py 生成 —— 可以入库
+data/blobs/
 
 # ---------- 编辑器与操作系统 ----------
 .idea/

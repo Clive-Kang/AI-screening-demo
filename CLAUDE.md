@@ -5,10 +5,10 @@
 
 ---
 
-## 0. 当前状态（截至 2026-10-16）
+## 0. 当前状态（截至 2026-10-18）
 
-> **一句话进度**：**阶段 1（领域内核 + 配置化评分）已完成**（7 轮），下一步进入**阶段 2 —— 持久化 + 端口/适配器**。
-> 工作约定见 §7；阶段 1 之后的路线见 [ARCHITECTURE.md](ARCHITECTURE.md) §12。
+> **一句话进度**：**阶段 1、2 已完成，R17 端到端验收已通过**（3 份 PDF → 入库 → 召回 → 硬过滤 → 评分 → Top-2 报告，真实调用 DeepSeek + Ollama）。阶段 2 到此收尾。
+> 工作约定见 §7；详细文件级进度以 [CODE_MAP.md](CODE_MAP.md) 为准；路线见 [ARCHITECTURE.md](ARCHITECTURE.md) §12。
 
 ### 已完成
 
@@ -22,14 +22,36 @@
 | R6 | 七维打分 + `combine()` | [scoring.py](app/domain/scoring.py)、[test_scoring.py](tests/unit/test_scoring.py)、`text.parse_salary_range` | 见下 |
 | R7 | 硬性过滤 + 三种缺失策略 | [filtering.py](app/domain/filtering.py)、[test_filtering.py](tests/unit/test_filtering.py) | 见下 |
 
-测试：`python -m pytest tests/ -q` → **201 passed**（命令必须带 `-m`，见 §7）
+测试：`python -m pytest tests/ -q` → **445 passed**（命令必须带 `-m`，见 §7）
 
-### 下一步：阶段 2（持久化 + 端口/适配器）
+### 阶段 2 进度
 
-| 轮次 | 内容 |
-|---|---|
-| R8 | `app/ports/` 接口定义（llm / vector_store / repository / task_queue / document_parser） |
-| R9 | `db/schema.sql` + `adapters/repo/sqlite_repo.py` |
+| 轮次 | 内容 | 状态 |
+|---|---|---|
+| R8 | `app/ports/` 七个接口（vector_store / repository / llm / document_parser / task_queue / embedding） | ✅ |
+| R9 | `db/schema.sql`（11 张表）+ `adapters/repo/{db,sqlite_repo}.py` | ✅ |
+| R10 | `config/settings.py`（pydantic-settings）+ `adapters/parser/pdf_parser.py`（pypdf） | ✅ |
+| R11 | `adapters/llm` + `adapters/embedding` + `adapters/vector_store`（sqlite-vec） | ✅ |
+| R12 | `app/prompts/`：三个带版本号的 prompt 模板 + `Template` 渲染 | ✅ |
+| R13 | `services/schemas.py`（wire DTO）+ `services/ingestion.py`（解析→抽取→入库→索引） | ✅ |
+| R14 | results/corpus_version 落库 + `services/screening.py`（召回→过滤→评分→报告，含幂等） | ✅ |
+| R15 | `adapters/queue/sqlite_queue.py`（可见性锁/死信）+ `app/worker.py`（组合根 + 消费循环） | ✅ |
+| R16 | `api/`（resumes / runs / system）+ `deps.py` + `main.py`，`.env` / `.env.example` | ✅ |
+| R17 | 端到端验收：[make_samples.py](scripts/make_samples.py) 造 3 份 PDF + [smoke_test.py](scripts/smoke_test.py) 跑全链路 | ✅ |
+| R17b | 演示页 [web/index.html](web/index.html)：上传 / 简历状态 / 进度条 / 结果卡片 / 报告渲染 / 一键清空，`GET /` 直接打开 | ✅ |
+| R17c | 开发启动器 [scripts/dev.py](scripts/dev.py)：一条命令起 API + worker（仍是两个进程，保留隔离） | ✅ |
+
+**R17 实测结果**（2026-10-18，`deepseek-flash` + Ollama bge-m3）：
+上传 3 份 → 全部 `indexed`（约 25 秒）→ 提交 `"招 Python 后端工程师，本科及以上，3 年以上工作经验"`
+→ `succeeded`，`recall=3 / filtered(通过)=2 / scored=3 / analyzed=2`。
+张三 0.920、王五 0.916 通过并生成报告；李四因「大专低于本科」被淘汰且保留原因。
+同 query 再提交一次 → `deduplicated=true`，零额外 LLM 调用。
+
+**验收暴露的两点已知限制**（不是 bug，但要知道）：
+1. 样本简历是英文的（PDF 标准字体无中文），`Beijing` 与岗位里的`北京`字符串交集为 0 → 地点硬过滤误杀。
+   真实中文简历不会触发；若要多语言支持，需在 `domain/filtering.py` 加地名归一表。
+2. `progress.filtered` / `filtered_n` 的语义是「过滤后**通过**的人数」，不是「被淘汰数」——
+   字段名沿用 SQL 列名，已在 `api/schemas.py` 的 Field description 里写明。
 
 ### 已定的技术决策
 
